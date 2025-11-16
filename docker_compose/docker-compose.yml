@@ -1,0 +1,63 @@
+services:
+  memcache:
+    image: memcached:latest
+    container_name: kontxt-memcache
+    ports:
+      - "11212:11211"
+    command: memcached -m 512
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "11211"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  chromadb:
+    image: ghcr.io/chroma-core/chroma:latest
+    container_name: kontxt-chromadb
+    ports:
+      - "8002:8000"
+    environment:
+      - IS_PERSISTENT=True
+    volumes:
+      - chromadb-data:/chroma/chroma
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: kontxt-ollama
+    ports:
+      - "11435:11434"
+    volumes:
+      - /usr/share/ollama/.ollama:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    command: serve
+
+  kontxt-api:
+    image: kontxt-api:latest
+    container_name: kontxt-api
+    ports:
+      - "8001:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - MEMCACHE_HOST=memcache
+      - CHROMADB_HOST=chromadb
+      - OLLAMA_HOST=ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/tools"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  chromadb-data:
