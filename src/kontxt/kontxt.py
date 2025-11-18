@@ -7,6 +7,8 @@ import requests
 
 from kontxt.tool_call import ToolCall
 from kontxt.user_session import UserSession
+from kontxt.task_state import TaskState
+from kontxt.plan_item import PlanItem
 
 MAX_CONTEXT_TOKENS = 4096
 MODEL = "gpt-oss"
@@ -19,6 +21,15 @@ logger.setLevel(logging.DEBUG)
 class Kontxt:
     _context: Dict[str, UserSession] = {}
     _key: str = ""
+    _curration_status: bool = False
+
+    @property
+    def curration_status(self):
+        return self._curration_status
+
+    @curration_status.setter
+    def curration_status(self, stat: bool):
+        self._curration_status = stat
 
     @property
     def session(self) -> UserSession:
@@ -97,104 +108,68 @@ class Kontxt:
 
 [START SYSTEM]
 
-You are a Context Orchestrator AI named Kontxt.
-Your job is to curate relevant context and tool calls to help
-the LLM effectively implement user requests with high accuracy and efficiency.
-Your task is to currate the most complete but terse context necessary to help the LLM
-resolve the users request.  The context shall not exceed {MAX_CONTEXT_TOKENS} tokens.
-Respond only in JSON format, following this schema:
+You are Kontxt, a Context Orchestrator AI.
+Your job is to curate the minimal yet complete context needed for the LLM to
+answer the user’s request.
+The context must not exceed {MAX_CONTEXT_TOKENS} tokens.
+
+Respond only in JSON following this schema:
 
 ### Response Schema
 
-```
+```json
 {{
 "User": string,
 "Plan": [
-    {{  "status": string,
-        "description": string,
-        "tool_calls": [{{'name': string, 'args': list[string], "results": list[string]}},
-                    ...
-                    ]}},
-        ],
+{{
+"status": string,
+"description": string,
+"tool_calls": [{{
+"status": string,
+"name": string,
+"args": list[string],
+"results": list[string]}},
+...
+]}},
+...
+],
 "Context": [string],
-"CurrationStatus": string
+"CurationStatus": string
 }}
 ```
 
-_whereas_:
-    * User is the original user prompt / request / message
-    * Plan is your step-by-step plan to currate the necessary information to provide an LLM to
-        fulfill the user request.  Each plan item starts with a status:
-        * Status:
-            * "[ ]": Pending; default starting status for each task
-            * "[✔️]": Complete; task is completed and successful
-            * "[X]": Failed; task was attempted and failed - may need to be re-considered
-        * "tool_calls" is a list of tool calls needed to implement or provide information to
-            complete the plan step.
-            * "name": The name of the tool call.
-            * "args": A list of arguments for the tool call.
-                * If no args are needed, return an empty list.
-            * "results": A list of results produced by the tool call.
-                * If no results are needed, return an empty list.
-        * DECISION:  Based on information gathered, extend the plan if needed.
-            to produce information you will use in currating context for the LLM to use
-            in next response to the user. If no tool calls are needed, return an empty list.
-        * DECISION:  Based on information gathered, extend the plan if needed.
+* **User** - the original user prompt.
+* **Plan** - step-by-step plan. Each item starts with a status:
+  * `[ ]` - pending
+  * `[✔]` - completed
+  * `[X]` - failed
+  * `tool_calls` lists the tools needed for that step.
+* **Context** - the current work-in-progress context.
+* **CurationStatus** - overall status of the plan, starting `[ ]` and marked `[✔]`
+  when the context is ready for the LLM.
 
-        [INSIGHT] the plan may be updated and decisions can change throughout the process,
-        but the plan should retain completed tasks to inform the context curation process
-        [END INSIGHT]
-    * Context is the context work-in-progress
-    * CurationStatus: the status of your plan.  Should start with a pending status ("[ ]")
-        * [CRITICAL] Mark the CurationStatus complete ("[✔️]") when the Context is ready for
-            the LLM to consume
-        * Curation Status Values:
-            * "[ ]": Pending; default starting status for the new context
-            * "[✔️]": Complete; your curration of the context is complete and it is
-             ready for the LLM to consume
+### Tool Calls
 
-### tool_calls
+* Use tools to gather data, filter, summarize, or off-load content.
+* If no tools are required, return an empty list.
+* If a task is not complete, but there are results in the tool_calls that
+inform the task, additional tool_calls may be added until adequate result
+data is available to mark the task as complete.
 
-[INSIGHT] There is no 'python' or other scripting tool.  Use ToolCalls and registered tools
-[INSIGHT] To find relevant tools, use the ToolCalls to get a list of available tools.
-[INSIGHT] The results of tool calls will be added to the context for future responses.
+### Example
 
-Example: Get the tool collections index:
-```
-{{ "ToolCalls": [
-    {{"name": "tools", "args": []}}
-    ]
+```json
+{{
+  "status":"[ ]",
+  "description":"Find tool to read './data.txt'.",
+  "tool_calls":[
+    {{"name":"tools","args":[]}},
+    {{"name":"tools","args":["filesystem-tools"]}}
+  ]
 }}
 ```
 
-[HINT] Use this if you need to find the right tool
-
-[INSIGHT] After getting the list of tools, you can call other tools as needed.
-
-Example: Get the tools from the filesystem-tools collection:
-```
-{{ "ToolCalls": [
-    {{"name": "tools", "args": ["filesystem-tools"]}}
-    ]
-}}
-```
-
-[INSIGHT] Use tools to gather information needed to fulfill user requests.
-If no tools are needed, return an empty list for ToolCalls.
-[END INSIGHT]
-
-### Context Curration
-
-The context should contain only relevant information for the LLM to produce a
-high-quality result.  It does not need to contain the final final response, but
-may contain facts and data that the LLM will synthesize into a final response.
-
-The context shall not exceed {MAX_CONTEXT_TOKENS} tokens.  If necessary, summarize
-portions of the context to minimize the number of tokens.
-
-Use tool_calls to perform filtering, summarization, off-loading of content
-to temporary files for your purposes and to reduce the number of tokens and
-relevance of data within the context.
+[INSIGHT] The MCP marks tool_call status, the context currator updates the task status
 
 [END SYSTEM]
 
@@ -212,29 +187,43 @@ relevance of data within the context.
         """Prompt the ollama service to currate the context for the LLM"""
 
         logger.debug(f"Prompt sent to Ollama: {self.currator_prompt}")
-        response_json = requests.post(
+        service_response_json = requests.post(
             OLLAMA_API_URL,
             json={
                 "model": MODEL,
-                "prompt": prompt,
+                "prompt": self.currator_prompt,
                 "stream": False,
             },
             timeout=120,
         ).json()
-        logger.debug(f"Ollama Response JSON: {response_json}")
+        logger.debug(f"Ollama Response JSON: {service_response_json}")
 
-        model_response_raw = response_json.get("response", "")
+        model_response_raw = service_response_json.get("response", "")
         if model_response_raw == "":
-            return
+            raise RuntimeError("No response from ollama service")
         model_response = json.loads(model_response_raw)
 
-        # thinking = model_response.get("Thinking", "")
+        self.curration_status = model_response.get("CurrationStatus", "[ ]")
 
-        # add the plan to the context
-        self.plan = model_response.get("Plan", [])
+        # check if the context curration is complete
+        if self.curration_status == TaskState.Complete:
+            return
 
-        # extract the ToolCalls from the model response and add them to context
-        self.tool_calls = [ToolCall(**o) for o in model_response.get("ToolCalls", [])]
+        thinking = model_response.get("Thinking", "")
+        logger.info(thinking)
+
+        # load the plan
+        self.plan = [PlanItem(p) for p in model_response.get("Plan")]
+
+        # find the first pending item in the plan
+        current_plan_item: PlanItem
+        for item in self.plan:
+            if PlanItem(item).state == TaskState.Pending:
+                current_plan_item = item
+                break
+
+        # extract the ToolCalls from the plan item
+        self.tool_calls = current_plan_item.tool_calls
         # if the model contains tool calls, process them
         if self.tool_calls:
             self.process_tool_calls()
@@ -242,6 +231,9 @@ relevance of data within the context.
     def process_tool_calls(self) -> str:
         tools_responses = []
         for tc in self.tool_calls:
+            # skip completed tasks
+            if tc.status == TaskState.COMPLETE:
+                continue
             tool_path = f"{KONTXT_API_URL}/{tc['name']}{'/'.join(tc['args'])}"
             logger.debug(f"tool_path: {tool_path}")
             raw_response = requests.get(tool_path, timeout=60)

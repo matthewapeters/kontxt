@@ -2,9 +2,11 @@ import json
 from typing import Any, Dict
 
 from pydantic import BaseModel
+from kontxt.task_state import TaskState
 
 
 class ToolCall(BaseModel):
+    status: TaskState
     name: str
     args: Dict[str, Any]
     result: str

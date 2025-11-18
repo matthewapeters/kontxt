@@ -1,4 +1,4 @@
 class TaskState(enumerate):
     PENDING = "[ ]"
-    COMPLETE = "[✔️]"
+    COMPLETE = "[✔]"
     FAILED = "[X]"
