@@ -1,5 +1,6 @@
-import logging
 import json
+import logging
+
 
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
@@ -13,6 +14,6 @@ class JsonFormatter(logging.Formatter):
             # Add other desired attributes from record.__dict__
         }
         # Include extra attributes if provided
-        if hasattr(record, 'extra_data'):
+        if hasattr(record, "extra_data"):
             log_record.update(record.extra_data)
         return json.dumps(log_record)

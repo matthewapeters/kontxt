@@ -1,8 +1,8 @@
-from typing import Any, Dict, List
-import fastapi
-from fastapi import FastAPI
-import uvicorn
 import logging
+from typing import Any, Dict
+
+import fastapi
+import uvicorn
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
@@ -33,9 +33,11 @@ async def get_tools() -> Dict[str, Any]:
                     {
                         "collection_name": "meta-arguments",
                         "description": (
-                            "Meta arguments for tool invocation - example: '&meta=use_cache' "
-                            "to use cached parameters and results where available to minimize "
-                            "passing data directly to and from tools (uses file system)"
+                            "Meta arguments for tool invocation - "
+                            "example: '&meta=use_cache' to use cached "
+                            "parameters and results where available to "
+                            "minimize passing data directly to and from "
+                            "tools (uses file system)"
                         ),
                         "tools": [
                             {
@@ -98,7 +100,10 @@ async def get_tools() -> Dict[str, Any]:
             },
             {
                 "collection_name": "text_editing_tools",
-                "description": "Tools for editing and manipulating text. Examples: text summarization, grammar correction",
+                "description": (
+                    "Tools for editing and manipulating text. "
+                    "Examples: text summarization, grammar correction"
+                ),
                 "tools": [
                     {"summarize_text": "Summarize text content", "args": ["text"]},
                     {"grammar_check": "Check and correct grammar", "args": ["text"]},

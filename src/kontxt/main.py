@@ -1,11 +1,9 @@
-from typing import Any, Dict, List
 import logging
 import tkinter as tk
-import requests
-import json
 from tkinter import messagebox, scrolledtext
 
-from kontxt.json_logger import JsonFormatter
+import requests
+
 from kontxt.kontxt import Kontxt
 
 MODEL = "gpt-oss"
