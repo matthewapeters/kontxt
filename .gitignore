@@ -1,3 +1,9 @@
 build/
 dist/
 __pycache__/
+.continue/
+junit/
+.vscode/
+.venv/
+uv.lock
+.*_cache/
